@@ -1,0 +1,122 @@
+/*
+ * The BoardLink theme.
+ *
+ * These override HeroUI's built-in `light` and `dark` themes rather than
+ * declaring new theme names, because `useTheme()` writes `.light` / `.dark` and
+ * `data-theme="light|dark"` — so overriding them keeps one theme controller and
+ * system mode working with no extra wiring.
+ *
+ * The palette is warm on purpose. The board is a photographic brown wood
+ * texture; a cool grey interface around it makes the board look like a foreign
+ * object pasted onto a dashboard. Everything here is pulled slightly toward
+ * amber so the chrome reads as the table the board is sitting on.
+ */
+
+@layer base {
+  :root,
+  .light,
+  [data-theme="light"] {
+    color-scheme: light;
+
+    /* Ivory paper, not sterile white. */
+    --background: oklch(0.976 0.006 85);
+    --foreground: oklch(0.235 0.014 50);
+
+    /* Warm stone, a touch lighter than the canvas so panels lift gently. */
+    --surface: oklch(0.995 0.004 85);
+    --surface-foreground: var(--foreground);
+
+    --overlay: oklch(0.995 0.004 85);
+    --overlay-foreground: var(--foreground);
+
+    --muted: oklch(0.545 0.014 55);
+
+    --default: oklch(0.935 0.008 80);
+    --default-foreground: var(--foreground);
+
+    /* Caramel. Restrained: it marks the one thing to act on, nothing else. */
+    --accent: oklch(0.545 0.105 62);
+    --accent-foreground: oklch(0.99 0.005 85);
+
+    --field-background: oklch(1 0 0);
+    --field-foreground: var(--foreground);
+    --field-placeholder: var(--muted);
+    --field-border: oklch(0.86 0.012 70);
+
+    --success: oklch(0.585 0.115 150);
+    --success-foreground: oklch(0.99 0.005 85);
+    --warning: oklch(0.72 0.135 70);
+    --warning-foreground: oklch(0.235 0.014 50);
+    --danger: oklch(0.545 0.165 27);
+    --danger-foreground: oklch(0.99 0.005 85);
+
+    --border: oklch(0.885 0.012 72);
+    --separator: oklch(0.915 0.010 75);
+    --focus: var(--accent);
+    --link: var(--accent);
+
+    --radius: 0.75rem;
+
+    /* Soft and low. Depth comes from tone, not from drop shadows. */
+    --surface-shadow:
+      0 1px 2px 0 oklch(0.3 0.02 60 / 5%), 0 2px 8px -2px oklch(0.3 0.02 60 / 6%);
+    --overlay-shadow:
+      0 8px 32px -8px oklch(0.3 0.02 60 / 14%),
+      0 2px 8px -2px oklch(0.3 0.02 60 / 8%);
+    --field-shadow: 0 1px 2px 0 oklch(0.3 0.02 60 / 4%);
+
+    /* Board chrome. Kept out of component tokens so the wood never shifts. */
+    --board-frame: oklch(0.90 0.016 70);
+    --board-shadow: 0 12px 40px -16px oklch(0.35 0.03 55 / 30%);
+  }
+
+  .dark,
+  [data-theme="dark"] {
+    color-scheme: dark;
+
+    /* Warm charcoal. Deliberately not #000: pure black next to a lit wooden
+       board looks like a hole rather than a dim room. */
+    --background: oklch(0.178 0.008 55);
+    --foreground: oklch(0.945 0.008 80);
+
+    --surface: oklch(0.222 0.009 58);
+    --surface-foreground: var(--foreground);
+
+    --overlay: oklch(0.245 0.010 58);
+    --overlay-foreground: var(--foreground);
+
+    --muted: oklch(0.685 0.012 70);
+
+    --default: oklch(0.278 0.010 58);
+    --default-foreground: var(--foreground);
+
+    /* Lifted and slightly desaturated so it glows warmly rather than shouting. */
+    --accent: oklch(0.735 0.108 65);
+    --accent-foreground: oklch(0.18 0.012 50);
+
+    --field-background: oklch(0.245 0.010 58);
+    --field-foreground: var(--foreground);
+    --field-placeholder: var(--muted);
+    --field-border: oklch(0.325 0.012 60);
+
+    --success: oklch(0.700 0.125 152);
+    --success-foreground: oklch(0.18 0.012 50);
+    --warning: oklch(0.795 0.130 75);
+    --warning-foreground: oklch(0.18 0.012 50);
+    --danger: oklch(0.655 0.165 25);
+    --danger-foreground: oklch(0.99 0.005 85);
+
+    --border: oklch(0.305 0.011 60);
+    --separator: oklch(0.288 0.010 60);
+    --focus: var(--accent);
+    --link: var(--accent);
+
+    /* Elevation in the dark comes from surface tone, so shadows step back. */
+    --surface-shadow: 0 1px 2px 0 oklch(0 0 0 / 24%);
+    --overlay-shadow: 0 12px 40px -12px oklch(0 0 0 / 55%);
+    --field-shadow: 0 1px 2px 0 oklch(0 0 0 / 20%);
+
+    --board-frame: oklch(0.285 0.013 60);
+    --board-shadow: 0 16px 48px -20px oklch(0 0 0 / 70%);
+  }
+}

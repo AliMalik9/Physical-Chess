@@ -1,0 +1,177 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+
+/* Must come after @heroui/styles so the BoardLink palette wins. */
+@import "./theme.css";
+
+@layer base {
+  :root {
+    /*
+     * Declared once, outside the light/dark blocks: the board artwork is
+     * identical in both themes and must never be recoloured.
+     */
+    --board-image: url("/vendor/lichess/board/brown.png");
+
+    /*
+     * Piece colours, not theme colours. A white piece is white in dark mode
+     * too, so these sit outside the light/dark blocks alongside the board.
+     * Sampled from the Maestro artwork so the tokens match the pieces.
+     */
+    --piece-white: #f2f0eb;
+    --piece-black: #2b2724;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    /*
+     * The game screen is a fixed frame, not a document. Scrolling is opted into
+     * per region so a state change can never nudge the board or introduce a
+     * page scrollbar.
+     */
+    overflow: hidden;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Squares and coordinates are read as data; keep the digits from jittering. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /*
+   * The one true full-height unit. `dvh` tracks the mobile browser's collapsing
+   * toolbar, which `vh` does not — with `vh` the bottom action sits behind
+   * Safari's bar exactly when the player needs to press it.
+   */
+  .app-frame {
+    height: 100dvh;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .safe-bottom {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  /*
+   * The board.
+   *
+   * `brown.png` is the complete 8x8 Lichess board, so it is stretched across
+   * the whole square exactly once — never tiled, never cropped. The square
+   * aspect ratio is enforced here so the wood can never be distorted.
+   */
+  .board-surface {
+    aspect-ratio: 1 / 1;
+    background-image: var(--board-image);
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    border-radius: calc(var(--radius) * 0.5);
+    box-shadow: var(--board-shadow);
+    /* Stops long-press image save and text selection during a drag. */
+    -webkit-touch-callout: none;
+    user-select: none;
+    touch-action: none;
+  }
+
+  .piece-sprite {
+    /* Pieces follow the pointer on the compositor, never through layout. */
+    will-change: transform;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  .piece-animated {
+    transition: transform 190ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /*
+   * Square overlays. Warm translucent washes rather than rings, so highlights
+   * sit *in* the wood instead of floating above it.
+   */
+  .sq-last {
+    background-color: oklch(0.78 0.14 95 / 38%);
+  }
+
+  .sq-selected {
+    background-color: oklch(0.72 0.15 120 / 42%);
+  }
+
+  .sq-check {
+    /* Restrained red-brown. Never flashes, never pulses. */
+    background: radial-gradient(
+      circle,
+      oklch(0.55 0.19 25 / 62%) 0%,
+      oklch(0.55 0.19 25 / 42%) 42%,
+      transparent 72%
+    );
+  }
+
+  .sq-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 30%;
+    height: 30%;
+    border-radius: 9999px;
+    background-color: oklch(0.28 0.02 60 / 26%);
+  }
+
+  .sq-capture::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    border: 0.14em solid oklch(0.28 0.02 60 / 26%);
+  }
+
+  .coord {
+    position: absolute;
+    font-size: clamp(0.5rem, 1.6cqw, 0.72rem);
+    font-weight: 600;
+    line-height: 1;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  /*
+   * Coordinate contrast is keyed to the square underneath, not to the app
+   * theme: the wood stays the same in light and dark, so theme-based colours
+   * would go unreadable in one of them.
+   */
+  .coord-on-light {
+    color: oklch(0.42 0.055 62);
+  }
+
+  .coord-on-dark {
+    color: oklch(0.93 0.035 78);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .piece-animated {
+      transition: none;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
