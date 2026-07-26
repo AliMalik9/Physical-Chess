@@ -7,7 +7,6 @@ coverage/
 playwright-report/
 test-results/
 .DS_Store
-worker-configuration.d.ts
 *.tsbuildinfo
 # heroui-agents-md
 .heroui-docs/
