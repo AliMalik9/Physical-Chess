@@ -64,6 +64,7 @@ export function StartGameModal({
       // opens, this is what proves the device owns the seat.
       mergeSeat(room.publicCode, {
         seatToken: room.seatToken,
+        roomId: room.roomId,
         inviteSecret: room.inviteSecret,
       });
       navigate(

@@ -1,11 +1,10 @@
 import {fileURLToPath, URL} from "node:url";
-import {cloudflare} from "@cloudflare/vite-plugin";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import {defineConfig} from "vite";
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), cloudflare()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
@@ -18,6 +17,6 @@ export default defineConfig({
     // encoder and the start dialog — and hand-tuned manualChunks only pulled
     // those back into the entry's static graph.
     target: "es2022",
-    sourcemap: true,
+    sourcemap: false,
   },
 });

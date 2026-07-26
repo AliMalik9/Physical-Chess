@@ -30,7 +30,7 @@ import {useFeedback} from "@/hooks/useFeedback";
 import {useGameSettings} from "@/hooks/useGameSettings";
 import {useMediaQuery} from "@/hooks/useMediaQuery";
 import {useRoomConnection} from "@/hooks/useRoomConnection";
-import {ApiError, inviteUrl, pgnUrl, resolveRoom} from "@/lib/api";
+import {ApiError, inviteUrl, resolveRoom} from "@/lib/api";
 import {errorCopy} from "@/lib/errorCopy";
 import {deriveView, opponentColorOf, playerName} from "@/lib/gameView";
 import {readSeat, writeLastName} from "@/lib/seatStorage";
@@ -47,7 +47,7 @@ export function Room({code}: {code: string}) {
   // the join confirmation first and only then opens a socket, so simply opening
   // a link never silently claims the second seat.
   const storedSeat = useMemo(() => readSeat(code), [code]);
-  const [hasJoined, setHasJoined] = useState(Boolean(storedSeat?.seatToken));
+  const [hasJoined, setHasJoined] = useState(Boolean(storedSeat?.roomId));
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [preview, setPreview] = useState<ResolveCodeResponse | null>(null);
   const [previewError, setPreviewError] = useState<ErrorCode | null>(null);
@@ -348,19 +348,13 @@ export function Room({code}: {code: string}) {
     setHasJoined(true);
   }, []);
 
-  const seatToken = readSeat(code)?.seatToken ?? null;
   const inviteSecret = inviteSecretFromUrl ?? storedSeat?.inviteSecret ?? null;
   const shareUrl = inviteSecret ? inviteUrl(code, inviteSecret) : null;
 
   const handleDownloadPgn = useCallback(async () => {
-    if (!seatToken) return;
+    if (!snapshot) return;
     try {
-      const response = await fetch(pgnUrl(code, seatToken));
-      if (!response.ok) throw new Error(String(response.status));
-
-      // Saved as a blob rather than navigated to: a plain navigation would
-      // leave the game, and a failure would show a raw server response.
-      const blob = await response.blob();
+      const blob = new Blob([snapshot.pgn], {type: "application/x-chess-pgn;charset=utf-8"});
       const objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
@@ -375,7 +369,7 @@ export function Room({code}: {code: string}) {
         variant: "danger",
       });
     }
-  }, [code, seatToken]);
+  }, [code, snapshot]);
 
   const handleCopyGame = useCallback(async () => {
     if (!snapshot) return;

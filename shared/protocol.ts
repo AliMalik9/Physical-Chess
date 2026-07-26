@@ -139,6 +139,8 @@ export interface SeatView {
  */
 export interface RoomSnapshot {
   roomId: string;
+  /** Optimistic-concurrency version maintained by Postgres. */
+  version: number;
   publicCode: string;
   status: RoomStatus;
   turnPhase: TurnPhase;
@@ -173,6 +175,8 @@ export interface RoomSnapshot {
  * src/lib/errorCopy.ts; raw codes are never rendered to a player.
  */
 export type ErrorCode =
+  | "auth_required"
+  | "invalid_input"
   | "protocol_mismatch"
   | "bad_request"
   | "rate_limited"
@@ -186,6 +190,11 @@ export type ErrorCode =
   | "wrong_phase"
   | "illegal_move"
   | "stale_sequence"
+  | "room_version_conflict"
+  | "not_a_room_member"
+  | "invalid_turn_phase"
+  | "move_already_copied"
+  | "undo_not_available"
   | "duplicate_action"
   | "read_only_connection"
   | "game_already_over"
@@ -272,10 +281,6 @@ export interface ResignEvent extends IdempotentAction {
   type: "resign";
 }
 
-export interface HeartbeatEvent {
-  type: "heartbeat";
-}
-
 export interface LeaveRoomEvent {
   type: "leave_room";
 }
@@ -290,7 +295,6 @@ export type ClientEventBody =
   | OfferDrawEvent
   | RespondToDrawEvent
   | ResignEvent
-  | HeartbeatEvent
   | LeaveRoomEvent;
 
 export type ClientMessage = Envelope & ClientEventBody;
@@ -483,8 +487,6 @@ export const LIMITS = {
   maxMessageBytes: 4096,
   /** How many recent moves ride along in a snapshot. */
   recentMoveWindow: 5,
-  /** Client heartbeat interval. The room evicts sockets at 3x this. */
-  heartbeatIntervalMs: 25_000,
   /** Grace period before a disconnect pauses a running clock. */
   disconnectGraceMs: 30_000,
   /** How long a dropped player keeps their seat and the game stays warm. */

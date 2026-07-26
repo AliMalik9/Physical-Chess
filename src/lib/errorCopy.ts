@@ -14,6 +14,15 @@ export interface ErrorCopy {
 }
 
 const COPY: Record<ErrorCode, ErrorCopy> = {
+  auth_required: {
+    title: "Could not start the game",
+    body: "BoardLink is temporarily unavailable. Please try again.",
+    action: "Try again",
+  },
+  invalid_input: {
+    title: "That did not look right",
+    body: "Check the details and try again.",
+  },
   protocol_mismatch: {
     title: "This page is out of date",
     body: "BoardLink was updated while you were playing. Reload to carry on.",
@@ -72,6 +81,26 @@ const COPY: Record<ErrorCode, ErrorCopy> = {
     title: "Your board was out of date",
     body: "We have caught you up. Have a look, then make your move.",
   },
+  room_version_conflict: {
+    title: "Your board was out of date",
+    body: "We have caught you up. Have a look, then make your move.",
+  },
+  not_a_room_member: {
+    title: "You are not in this game",
+    body: "Ask your friend for the invite link.",
+  },
+  invalid_turn_phase: {
+    title: "Not just yet",
+    body: "Finish the step on screen first, then try again.",
+  },
+  move_already_copied: {
+    title: "Already done",
+    body: "That move was already confirmed.",
+  },
+  undo_not_available: {
+    title: "Nothing to take back",
+    body: "A take-back is not available right now.",
+  },
   duplicate_action: {
     title: "Already done",
     body: "That was already sent, so nothing changed.",
@@ -96,7 +125,7 @@ const COPY: Record<ErrorCode, ErrorCopy> = {
   },
   internal_error: {
     title: "Something went wrong",
-    body: "Your game is safe. We are reconnecting you now.",
+    body: "BoardLink is temporarily unavailable. Please try again.",
   },
 };
 

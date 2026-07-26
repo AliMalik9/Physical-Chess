@@ -1,7 +1,10 @@
 node_modules/
 dist/
-.wrangler/
+supabase/.temp/
+.env
+.env.local
 .dev.vars
+.wrangler/
 *.local
 coverage/
 playwright-report/

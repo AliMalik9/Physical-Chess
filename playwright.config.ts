@@ -1,6 +1,12 @@
 import {defineConfig, devices} from "@playwright/test";
+import {loadEnv} from "vite";
 
 const PORT = 5173;
+const localEnv = loadEnv("development", process.cwd(), "VITE_");
+const hasLocalSupabase = Boolean(
+  localEnv.VITE_SUPABASE_URL && localEnv.VITE_SUPABASE_PUBLISHABLE_KEY,
+);
+if (hasLocalSupabase) process.env.PLAYWRIGHT_LOCAL_SUPABASE = "1";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -54,8 +60,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    // vite dev runs the real Worker + Durable Object through the Cloudflare
-    // plugin, so e2e exercises the production room logic rather than a mock.
+    // Vite serves the local client; its functions talk only to local Supabase.
     command: "npm run dev -- --port 5173 --strictPort",
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,

@@ -3,6 +3,8 @@ import {expect, test, type Page} from "@playwright/test";
 
 import {createGame, joinGame, playMove} from "./helpers";
 
+test.skip(!process.env.PLAYWRIGHT_LOCAL_SUPABASE, "requires local Supabase; never uses production");
+
 /**
  * WCAG 2.2 AA on every screen a player can reach.
  *

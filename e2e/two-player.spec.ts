@@ -2,6 +2,8 @@ import {expect, test, type WebSocketRoute} from "@playwright/test";
 
 import {confirmCopy, createGame, joinGame, playMove} from "./helpers";
 
+test.skip(!process.env.PLAYWRIGHT_LOCAL_SUPABASE, "requires local Supabase; never uses production");
+
 test.describe("two people, two boards", () => {
   test("plays moves in both directions with a copy confirmation each way", async ({
     browser,

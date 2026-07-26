@@ -3,6 +3,8 @@ import {expect, test, type Page} from "@playwright/test";
 
 import {createGame, joinGame} from "./helpers";
 
+test.skip(!process.env.PLAYWRIGHT_LOCAL_SUPABASE, "requires local Supabase; never uses production");
+
 async function themeOf(page: Page) {
   return page.evaluate(() => ({
     attr: document.documentElement.getAttribute("data-theme"),

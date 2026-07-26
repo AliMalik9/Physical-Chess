@@ -2,6 +2,8 @@ import {test, type Page} from "@playwright/test";
 
 import {createGame, joinGame} from "./helpers";
 
+test.skip(!process.env.PLAYWRIGHT_LOCAL_SUPABASE, "requires local Supabase; never uses production");
+
 /**
  * Regenerates the screenshots in docs/screenshots.
  *

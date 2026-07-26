@@ -20,6 +20,7 @@ const START_FEN = new Chess().fen();
 function baseSnapshot(overrides: Partial<RoomSnapshot> = {}): RoomSnapshot {
   return {
     roomId: "room",
+    version: 1,
     publicCode: "BNXWZK43",
     status: "active",
     turnPhase: "waiting_for_move",

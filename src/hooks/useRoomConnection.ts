@@ -1,45 +1,23 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 
-import {
-  LIMITS,
-  PROTOCOL_VERSION,
-  type ClientEventBody,
-  type ErrorCode,
-  type PieceSymbol,
-  type RoomSnapshot,
-  type ServerMessage,
+import type {
+  ErrorCode,
+  PieceSymbol,
+  RoomSnapshot,
+  ServerMessage,
 } from "@shared/protocol";
 
-import {socketUrl} from "@/lib/api";
 import {applyServerEvent} from "@/lib/snapshotReducer";
 import {mergeSeat, readSeat} from "@/lib/seatStorage";
+import {eventMessage, gameBackend, ApiError, type RoomAction} from "@/services/gameBackend";
 
-export type ConnectionStatus =
-  | "connecting"
-  | "connected"
-  | "reconnecting"
-  | "offline"
-  | "closed";
+export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "offline" | "closed";
 
-/** Failures that mean retrying will never help, so the socket gives up. */
 const FATAL_CODES: ReadonlySet<ErrorCode> = new Set([
-  "room_not_found",
-  "room_expired",
-  "room_full",
-  "invalid_invite",
-  "invalid_code",
-  "protocol_mismatch",
-  "not_a_player",
+  "room_not_found", "room_expired", "room_full", "invalid_invite", "invalid_code", "not_a_player",
 ]);
 
-const BASE_RETRY_MS = 600;
-const MAX_RETRY_MS = 8_000;
-
-export interface InboundEvent {
-  /** Monotonic, so effects can react to repeats of the same event type. */
-  id: number;
-  message: ServerMessage;
-}
+export interface InboundEvent {id: number; message: ServerMessage}
 
 export interface RoomActions {
   submitMove(from: string, to: string, promotion?: PieceSymbol): void;
@@ -55,21 +33,30 @@ export interface RoomActions {
 export interface RoomConnection {
   status: ConnectionStatus;
   snapshot: RoomSnapshot | null;
-  /** Stops the game. Rendered as a full-screen explanation. */
   fatalError: ErrorCode | null;
-  /** Recoverable; rendered as a toast or inline note. */
   transientError: ErrorCode | null;
   clearTransientError(): void;
   lastEvent: InboundEvent | null;
-  /** True once an authoritative snapshot has arrived at least once. */
   isReady: boolean;
   actions: RoomActions;
 }
 
-function newActionId(): string {
-  return crypto.randomUUID();
-}
+type LocalAction =
+  | {type: "submit_move"; from: string; to: string; promotion?: PieceSymbol}
+  | {type: "confirm_move_copied"; moveSequence: number}
+  | {type: "request_undo"; targetSequence: number}
+  | {type: "respond_to_undo"; accepted: boolean}
+  | {type: "offer_draw"}
+  | {type: "respond_to_draw"; accepted: boolean}
+  | {type: "resign"}
+  | {type: "leave_room"};
 
+function newActionId(): string { return crypto.randomUUID(); }
+
+/**
+ * One authoritative snapshot plus one private Broadcast channel per active
+ * room. Supabase owns reconnecting; this hook only reconciles after it does.
+ */
 export function useRoomConnection(options: {
   code: string;
   inviteSecret: string | null;
@@ -77,257 +64,139 @@ export function useRoomConnection(options: {
   enabled: boolean;
 }): RoomConnection {
   const {code, inviteSecret, displayName, enabled} = options;
-
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [fatalError, setFatalError] = useState<ErrorCode | null>(null);
   const [transientError, setTransientError] = useState<ErrorCode | null>(null);
   const [lastEvent, setLastEvent] = useState<InboundEvent | null>(null);
+  const eventCounter = useRef(0);
+  const seenEventIds = useRef(new Set<string>());
+  const joinActionId = useRef(newActionId());
+  const activeRoomId = useRef<string | null>(null);
 
-  const socketRef = useRef<WebSocket | null>(null);
-  const retryCountRef = useRef(0);
-  const retryTimerRef = useRef<number | null>(null);
-  const heartbeatTimerRef = useRef<number | null>(null);
-  const eventCounterRef = useRef(0);
-  const closedByUsRef = useRef(false);
-
-  // Kept in refs so reconnecting never re-runs the connect effect and tears
-  // down a healthy socket just because the player renamed themselves.
-  const joinRef = useRef({inviteSecret, displayName});
-  joinRef.current = {inviteSecret, displayName};
-
-  const send = useCallback((body: ClientEventBody) => {
-    const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return false;
-
-    socket.send(
-      JSON.stringify({
-        v: PROTOCOL_VERSION,
-        roomId: "",
-        eventId: newActionId(),
-        ts: Date.now(),
-        ...body,
-      }),
-    );
-    return true;
+  const publishMessage = useCallback((message: ServerMessage) => {
+    eventCounter.current += 1;
+    setLastEvent({id: eventCounter.current, message});
+    setSnapshot((current) => applyServerEvent(current, message));
   }, []);
 
+  const handleError = useCallback((error: unknown) => {
+    const code: ErrorCode = error instanceof ApiError ? error.code : "internal_error";
+    if (FATAL_CODES.has(code)) setFatalError(code);
+    else setTransientError(code);
+  }, []);
+
+  // Resolve identity and room membership once. A stored room id means refresh;
+  // otherwise room-join atomically validates the invite and takes the open seat.
   useEffect(() => {
     if (!enabled || !code) return;
+    let cancelled = false;
+    setStatus("connecting");
 
-    let disposed = false;
-    closedByUsRef.current = false;
-
-    const clearTimers = () => {
-      if (retryTimerRef.current !== null) {
-        window.clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
-      if (heartbeatTimerRef.current !== null) {
-        window.clearInterval(heartbeatTimerRef.current);
-        heartbeatTimerRef.current = null;
-      }
-    };
-
-    const scheduleReconnect = () => {
-      if (disposed || closedByUsRef.current) return;
-
-      if (!navigator.onLine) {
-        setStatus("offline");
-        return;
-      }
-
-      const attempt = retryCountRef.current;
-      retryCountRef.current = attempt + 1;
-      // Exponential with jitter, so two players dropped by the same flaky
-      // network do not stampede back at the same instant.
-      const delay = Math.min(BASE_RETRY_MS * 2 ** attempt, MAX_RETRY_MS);
-      const jitter = Math.random() * 0.3 * delay;
-
-      retryTimerRef.current = window.setTimeout(() => connect(), delay + jitter);
-    };
-
-    const connect = () => {
-      if (disposed) return;
-
-      setStatus((current) =>
-        current === "connected" ? "reconnecting" : current,
-      );
-
-      let socket: WebSocket;
+    void (async () => {
       try {
-        socket = new WebSocket(socketUrl(code));
-      } catch {
-        scheduleReconnect();
-        return;
-      }
-      socketRef.current = socket;
-
-      socket.addEventListener("open", () => {
-        if (disposed) return;
-        retryCountRef.current = 0;
-        setStatus("connected");
-
+        await gameBackend.initializeIdentity();
         const stored = readSeat(code);
-        const secret = joinRef.current.inviteSecret ?? stored?.inviteSecret;
-
-        // Always a join, never a bare resume: the server decides whether this
-        // device already owns a seat, and answers with a full snapshot either
-        // way. The client never assumes what it was.
-        send({
-          type: "join_room",
-          actionId: newActionId(),
-          ...(stored?.seatToken ? {seatToken: stored.seatToken} : {}),
-          ...(secret ? {inviteSecret: secret} : {}),
-          ...(joinRef.current.displayName
-            ? {displayName: joinRef.current.displayName}
-            : {}),
-        });
-
-        heartbeatTimerRef.current = window.setInterval(() => {
-          send({type: "heartbeat"});
-        }, LIMITS.heartbeatIntervalMs);
-      });
-
-      socket.addEventListener("message", (event) => {
-        if (disposed || typeof event.data !== "string") return;
-
-        let message: ServerMessage;
-        try {
-          message = JSON.parse(event.data) as ServerMessage;
-        } catch {
-          return;
-        }
-
-        eventCounterRef.current += 1;
-        setLastEvent({id: eventCounterRef.current, message});
-
-        if (message.type === "room_snapshot" && message.seatToken) {
-          // First snapshot after a seat is granted. Persisting it here is what
-          // makes a refresh keep the same side of the board.
-          mergeSeat(code, {
-            seatToken: message.seatToken,
-            ...(joinRef.current.inviteSecret
-              ? {inviteSecret: joinRef.current.inviteSecret}
-              : {}),
-          });
-        }
-
-        if (message.type === "error" || message.type === "move_rejected") {
-          if (FATAL_CODES.has(message.code)) {
-            closedByUsRef.current = true;
-            setFatalError(message.code);
-            socket.close();
-            return;
-          }
-          setTransientError(message.code);
-        }
-
-        setSnapshot((current) => applyServerEvent(current, message));
-      });
-
-      const handleGone = () => {
-        if (disposed) return;
-        if (heartbeatTimerRef.current !== null) {
-          window.clearInterval(heartbeatTimerRef.current);
-          heartbeatTimerRef.current = null;
-        }
-        if (closedByUsRef.current) {
-          setStatus("closed");
-          return;
-        }
-        setStatus("reconnecting");
-        scheduleReconnect();
-      };
-
-      socket.addEventListener("close", handleGone);
-      socket.addEventListener("error", handleGone);
-    };
-
-    // A phone coming off standby, a tab returning to the foreground, or a
-    // switch from wifi to mobile data all land here. Reconnect immediately
-    // instead of waiting out the backoff.
-    const revive = () => {
-      if (disposed || closedByUsRef.current) return;
-      const socket = socketRef.current;
-      if (socket && socket.readyState === WebSocket.OPEN) return;
-      retryCountRef.current = 0;
-      if (retryTimerRef.current !== null) {
-        window.clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
+        const next = stored?.roomId
+          ? await gameBackend.getSnapshot(stored.roomId)
+          : await gameBackend.joinRoom({
+              publicCode: code,
+              ...(inviteSecret ? {inviteToken: inviteSecret} : {}),
+              displayName: displayName ?? "Player 2",
+              clientActionId: joinActionId.current,
+            });
+        if (cancelled) return;
+        activeRoomId.current = next.roomId;
+        mergeSeat(code, {seatToken: next.roomId, roomId: next.roomId, ...(inviteSecret ? {inviteSecret} : {})});
+        setSnapshot(next);
+      } catch (error) {
+        if (!cancelled) handleError(error);
       }
-      connect();
-    };
+    })();
 
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") revive();
-    };
+    return () => { cancelled = true; activeRoomId.current = null; };
+  }, [code, displayName, enabled, handleError, inviteSecret]);
 
-    window.addEventListener("online", revive);
-    document.addEventListener("visibilitychange", handleVisibility);
+  useEffect(() => {
+    const roomId = snapshot?.roomId;
+    if (!roomId || !enabled) return;
+    let disposed = false;
+    let unsubscribe: (() => Promise<void>) | null = null;
 
-    connect();
+    void gameBackend.subscribeToRoom(roomId, {
+      onStatus(next) {
+        if (disposed) return;
+        if (next === "subscribed") {
+          setStatus("connected");
+          // Initial subscribe and successful Supabase reconnection are the only
+          // places a snapshot is refetched. There is no polling loop.
+          void gameBackend.getSnapshot(roomId).then((fresh) => {
+            if (!disposed) setSnapshot(fresh);
+          }).catch(handleError);
+        } else if (next === "reconnecting") setStatus(navigator.onLine ? "reconnecting" : "offline");
+        else setStatus("closed");
+      },
+      onError: handleError,
+      onEvent(event) {
+        if (disposed || seenEventIds.current.has(event.eventId)) return;
+        seenEventIds.current.add(event.eventId);
+        const current = activeRoomId.current === roomId;
+        if (!current) return;
+        setSnapshot((previous) => {
+          if (previous && event.version <= previous.version) return previous;
+          if (previous && event.version > previous.version + 1) {
+            void gameBackend.getSnapshot(roomId).then((fresh) => {
+              if (!disposed) setSnapshot(fresh);
+            }).catch(handleError);
+            return previous;
+          }
+          const message = eventMessage(event);
+          const next = message ? applyServerEvent(previous, message) : previous;
+          return next ? {...next, version: event.version} : next;
+        });
+        const message = eventMessage(event);
+        if (message) {
+          eventCounter.current += 1;
+          setLastEvent({id: eventCounter.current, message});
+        }
+      },
+    }).then((stop) => {
+      if (disposed) void stop();
+      else unsubscribe = stop;
+    }).catch(handleError);
 
     return () => {
       disposed = true;
-      closedByUsRef.current = true;
-      clearTimers();
-      window.removeEventListener("online", revive);
-      document.removeEventListener("visibilitychange", handleVisibility);
-      socketRef.current?.close();
-      socketRef.current = null;
+      if (unsubscribe) void unsubscribe();
     };
-  }, [code, enabled, send]);
+  }, [enabled, handleError, snapshot?.roomId]);
 
-  const actions = useMemo<RoomActions>(
-    () => ({
-      submitMove(from, to, promotion) {
-        send({
-          type: "submit_move",
-          actionId: newActionId(),
-          from,
-          to,
-          ...(promotion ? {promotion} : {}),
-          // Sending the sequence the client is looking at is what stops a move
-          // typed against a stale board from landing on the live one.
-          expectedSequence: snapshot?.moveSequence ?? 0,
-        });
-      },
-      confirmMoveCopied(sequence) {
-        send({type: "confirm_move_copied", actionId: newActionId(), sequence});
-      },
-      requestUndo(targetSequence) {
-        send({type: "request_undo", actionId: newActionId(), targetSequence});
-      },
-      respondToUndo(accept) {
-        send({type: "respond_to_undo", actionId: newActionId(), accept});
-      },
-      offerDraw() {
-        send({type: "offer_draw", actionId: newActionId()});
-      },
-      respondToDraw(accept) {
-        send({type: "respond_to_draw", actionId: newActionId(), accept});
-      },
-      resign() {
-        send({type: "resign", actionId: newActionId()});
-      },
-      leave() {
-        send({type: "leave_room"});
-      },
-    }),
-    [send, snapshot?.moveSequence],
-  );
+  const perform = useCallback((action: LocalAction) => {
+    const room = snapshot;
+    if (!room) return;
+    const complete = {...action, roomId: room.roomId, expectedVersion: room.version, clientActionId: newActionId()} as RoomAction;
+    void gameBackend.performAction(complete).then((result) => {
+      setSnapshot(result.snapshot);
+      if (result.message) publishMessage(result.message);
+    }).catch((error: unknown) => {
+      const code: ErrorCode = error instanceof ApiError ? error.code : "internal_error";
+      if (code === "room_version_conflict") {
+        void gameBackend.getSnapshot(room.roomId).then(setSnapshot).catch(handleError);
+      }
+      handleError(error);
+    });
+  }, [handleError, publishMessage, snapshot]);
 
-  const clearTransientError = useCallback(() => setTransientError(null), []);
+  const actions = useMemo<RoomActions>(() => ({
+    submitMove: (from, to, promotion) => perform({type: "submit_move", from, to, ...(promotion ? {promotion} : {})}),
+    confirmMoveCopied: (moveSequence) => perform({type: "confirm_move_copied", moveSequence}),
+    requestUndo: (targetSequence) => perform({type: "request_undo", targetSequence}),
+    respondToUndo: (accepted) => perform({type: "respond_to_undo", accepted}),
+    offerDraw: () => perform({type: "offer_draw"}),
+    respondToDraw: (accepted) => perform({type: "respond_to_draw", accepted}),
+    resign: () => perform({type: "resign"}),
+    leave: () => perform({type: "leave_room"}),
+  }), [perform]);
 
-  return {
-    status,
-    snapshot,
-    fatalError,
-    transientError,
-    clearTransientError,
-    lastEvent,
-    isReady: snapshot !== null,
-    actions,
-  };
+  return {status, snapshot, fatalError, transientError, clearTransientError: () => setTransientError(null), lastEvent, isReady: snapshot !== null, actions};
 }

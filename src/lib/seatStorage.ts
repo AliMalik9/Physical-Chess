@@ -23,6 +23,7 @@ function safeStorage(): Storage | null {
 
 interface StoredSeat {
   seatToken: string;
+  roomId?: string;
   inviteSecret?: string;
 }
 
