@@ -135,7 +135,17 @@ e2e/         Two-browser, theme, accessibility and screenshot specs
 scripts/     Asset extraction
 ```
 
-## Deploying to Cloudflare
+## Deploying
+
+BoardLink's backend is a Cloudflare Worker with two **Durable Objects**
+(`GameRoom`, `RateLimiter`). Durable Objects are what make the two-board sync
+correct — single-threaded, co-located, authoritative state with hibernating
+WebSockets. There is no equivalent on Vercel, Netlify or a static host, so the
+Worker has to run on Cloudflare wherever the client is served from.
+
+### Option 1 — everything on Cloudflare (recommended)
+
+One origin, no CORS, nothing to configure.
 
 ```bash
 npx wrangler login
@@ -156,6 +166,49 @@ npx wrangler secret put ALLOWED_ORIGINS
 Do **not** set `RATE_LIMIT_MULTIPLIER` in production — it exists only so local
 development and end-to-end runs, which all share one rate-limit bucket, do not
 throttle themselves. See `.dev.vars.example`.
+
+### Option 2 — client on Vercel, Worker on Cloudflare
+
+The client can be hosted anywhere as long as it can reach the Worker. `vercel.json`
+already sets the output directory (`dist/client`), the SPA rewrite and the
+security headers.
+
+**1. Deploy the Worker** and note its origin:
+
+```bash
+npm run deploy          # → https://boardlink.<your-subdomain>.workers.dev
+```
+
+**2. Tell the Worker who may call it** — this drives both the CORS headers and
+the WebSocket origin check:
+
+```bash
+npx wrangler secret put ALLOWED_ORIGINS
+# https://your-app.vercel.app
+```
+
+**3. Tell the client where the Worker is.** In Vercel → Settings → Environment
+Variables:
+
+```
+VITE_API_ORIGIN = https://boardlink.<your-subdomain>.workers.dev
+```
+
+It is read at build time, so redeploy after changing it. See `.env.example`.
+
+Notes:
+
+- `vercel.json`'s CSP allows `connect-src` to `*.workers.dev`. If the Worker is
+  on a custom domain, add that origin there or the browser will block it.
+- The WebSocket goes **direct** to the Worker; Vercel rewrites cannot proxy an
+  upgrade, which is why `VITE_API_ORIGIN` is required rather than optional here.
+- Invite links stay on the client origin, so players always open the Vercel URL.
+
+### What will not work
+
+Hosting the client on Vercel **without** deploying the Worker. The static site
+will load and then fail the moment anyone presses “Start a game”: `/api/rooms`
+returns 404 and no socket can be opened. There is no static-only mode.
 
 ## Known limitations
 

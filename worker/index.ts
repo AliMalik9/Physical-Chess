@@ -41,10 +41,18 @@ export default {
       return env.ASSETS.fetch(request);
     }
 
+    // A split deployment (client on Vercel, Worker on Cloudflare) makes every
+    // API call cross-origin, so the browser preflights anything with a JSON
+    // body. Answered before routing because OPTIONS matches no route.
+    if (request.method === "OPTIONS") {
+      return withCors(new Response(null, {status: 204}), request, env);
+    }
+
     try {
-      return await route(request, env, url, ctx);
+      const response = await route(request, env, url, ctx);
+      return withCors(response, request, env);
     } catch {
-      return apiError("internal_error", 500);
+      return withCors(apiError("internal_error", 500), request, env);
     }
   },
 } satisfies ExportedHandler<Env>;
@@ -190,6 +198,36 @@ async function openSocket(
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Adds CORS headers when the request came from an allow-listed origin.
+ *
+ * Deliberately reuses `isAllowedOrigin`, so the set of origins that may call
+ * the API is exactly the set that may open a socket — there is one list to get
+ * right, not two. Same-origin deployments never hit this: the browser sends no
+ * Origin header worth echoing and none of it applies.
+ *
+ * A 101 is left untouched; rebuilding it would drop the WebSocket.
+ */
+function withCors(response: Response, request: Request, env: Env): Response {
+  const origin = request.headers.get("Origin");
+  if (!origin || response.status === 101) return response;
+  if (!isAllowedOrigin(request, env)) return response;
+
+  const headers = new Headers(response.headers);
+  headers.set("Access-Control-Allow-Origin", origin);
+  headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  headers.set("Access-Control-Allow-Headers", "Content-Type");
+  headers.set("Access-Control-Max-Age", "86400");
+  // The allowed origin varies per request, so caches must key on it.
+  headers.append("Vary", "Origin");
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 /**
  * Same-origin by default. `ALLOWED_ORIGINS` widens it for deployments that
