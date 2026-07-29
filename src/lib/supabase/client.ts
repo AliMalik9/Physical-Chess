@@ -4,10 +4,14 @@ import type {Database} from "@/types/database";
 
 let client: SupabaseClient<Database> | null = null;
 
-function required(name: "VITE_SUPABASE_URL" | "VITE_SUPABASE_PUBLISHABLE_KEY"): string {
-  const value = import.meta.env[name]?.trim();
+function required(name: "SUPABASE_URL" | "SUPABASE_PUBLISHABLE_KEY"): string {
+  const value =
+    import.meta.env[`VITE_${name}`]?.trim() ??
+    import.meta.env[`NEXT_PUBLIC_${name}`]?.trim();
   if (!value) {
-    throw new Error(`${name} is required. Copy .env.local.example and configure Supabase.`);
+    throw new Error(
+      `VITE_${name} or NEXT_PUBLIC_${name} is required. Configure the public Supabase values and restart the app.`,
+    );
   }
   return value;
 }
@@ -16,8 +20,8 @@ function required(name: "VITE_SUPABASE_URL" | "VITE_SUPABASE_PUBLISHABLE_KEY"): 
 export function getSupabase(): SupabaseClient<Database> {
   if (client) return client;
   client = createClient(
-    required("VITE_SUPABASE_URL"),
-    required("VITE_SUPABASE_PUBLISHABLE_KEY"),
+    required("SUPABASE_URL"),
+    required("SUPABASE_PUBLISHABLE_KEY"),
     {auth: {persistSession: true, autoRefreshToken: true, detectSessionInUrl: false}},
   );
   return client;

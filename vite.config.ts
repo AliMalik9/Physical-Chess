@@ -5,6 +5,10 @@ import {defineConfig} from "vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // VITE_ is the preferred Vite convention. Accept NEXT_PUBLIC_ as well so an
+  // existing Vercel setup can use its already-configured public Supabase values.
+  // Neither prefix may contain a secret/service-role key.
+  envPrefix: ["VITE_", "NEXT_PUBLIC_"],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
